@@ -12,8 +12,8 @@ import timber.log.Timber
 import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
-import java.net.URLDecoder
 import java.net.URLEncoder
+import org.json.JSONObject
 import java.text.Normalizer
 
 /**
@@ -25,8 +25,10 @@ import java.text.Normalizer
  * downloads the server's list of covers for that system and picks the closest name.
  */
 object CoverFixer {
-    private const val SERVER = "https://thumbnails.libretro.com"
+    private const val GITHUB_API = "https://api.github.com/repos/libretro-thumbnails"
+    private const val GITHUB_RAW = "https://raw.githubusercontent.com/libretro-thumbnails"
     private const val INDEX_MAX_AGE_MS = 14L * 24 * 60 * 60 * 1000
+    private const val VERSION = "v2"
     private val mutex = Mutex()
 
     suspend fun run(
@@ -38,34 +40,32 @@ object CoverFixer {
         try {
             val prefs = context.getSharedPreferences("cover_fixer", Context.MODE_PRIVATE)
             val games = db.gameDao().selectAll()
-            val indexes = HashMap<String, CoverIndex?>()
+            val indexes = HashMap<String, SystemCovers?>()
 
             for (game in games) {
                 if (game.customCoverUri != null) continue
-                val checkedKey = "ok_${game.id}_${game.fileName.hashCode()}"
-                if (!force && prefs.getBoolean(checkedKey, false)) continue
-
-                val current = game.coverFrontUrl
-                if (current != null) {
-                    when (exists(current)) {
-                        true -> {
-                            prefs.edit().putBoolean(checkedKey, true).apply()
-                            continue
-                        }
-                        null -> continue // offline, try again next time
-                        false -> Unit
-                    }
-                }
+                val doneKey = "${VERSION}_${game.id}_${game.fileName.hashCode()}"
+                if (!force && prefs.getBoolean(doneKey, false)) continue
 
                 val system = runCatching { GameSystem.findById(game.systemId) }.getOrNull() ?: continue
                 val serverSystem = if (system.id == SystemID.MAME2003PLUS) "MAME" else system.libretroFullName
-                val index = indexes.getOrPut(serverSystem) { loadIndex(context, serverSystem) } ?: continue
+                val repo = serverSystem.replace(" ", "_")
+                // Offline or rate limited: leave the game alone and try again next launch.
+                val covers = indexes.getOrPut(repo) { loadCovers(context, repo) } ?: continue
 
-                val match = index.bestMatch(game.title, game.fileName) ?: continue
-                val url = "$SERVER/${encode(serverSystem)}/Named_Boxarts/${encode(match)}.png"
-                Timber.d("CoverFixer: ${game.title} -> $match")
-                db.gameDao().update(game.copy(coverFrontUrl = url))
-                prefs.edit().putBoolean(checkedKey, true).apply()
+                val match =
+                    covers.boxarts.bestMatch(game.title, game.fileName)?.let { "Named_Boxarts" to it }
+                        ?: covers.titles.bestMatch(game.title, game.fileName)?.let { "Named_Titles" to it }
+
+                if (match != null) {
+                    val (folder, name) = match
+                    val url = "$GITHUB_RAW/${encode(repo)}/master/$folder/${encode(name)}.png"
+                    if (url != game.coverFrontUrl) {
+                        Timber.d("CoverFixer: ${game.title} -> $folder/$name")
+                        db.gameDao().update(game.copy(coverFrontUrl = url))
+                    }
+                }
+                prefs.edit().putBoolean(doneKey, true).apply()
             }
         } catch (e: Exception) {
             Timber.e(e, "CoverFixer failed")
@@ -74,54 +74,47 @@ object CoverFixer {
         }
     }
 
+    private class SystemCovers(val boxarts: CoverIndex, val titles: CoverIndex)
+
     private fun encode(s: String): String = URLEncoder.encode(s, "UTF-8").replace("+", "%20")
 
-    private fun exists(url: String): Boolean? {
-        return try {
-            val conn = URL(url.replaceFirst("http://", "https://")).openConnection() as HttpURLConnection
-            conn.requestMethod = "HEAD"
-            conn.connectTimeout = 8000
-            conn.readTimeout = 8000
-            conn.instanceFollowRedirects = true
-            val code = conn.responseCode
-            conn.disconnect()
-            code in 200..299
-        } catch (e: Exception) {
-            null
-        }
-    }
-
-    private fun loadIndex(
+    private fun loadCovers(
         context: Context,
-        serverSystem: String,
-    ): CoverIndex? {
-        val dir = File(context.filesDir, "cover_index").apply { mkdirs() }
-        val cache = File(dir, serverSystem.replace(Regex("[^A-Za-z0-9]"), "_") + ".txt")
+        repo: String,
+    ): SystemCovers? {
+        val dir = File(context.filesDir, "cover_index_$VERSION").apply { mkdirs() }
+        val cache = File(dir, repo.replace(Regex("[^A-Za-z0-9_-]"), "_") + ".txt")
         val fresh = cache.exists() && System.currentTimeMillis() - cache.lastModified() < INDEX_MAX_AGE_MS
         if (!fresh) {
-            val names = downloadNames(serverSystem)
-            if (names != null && names.isNotEmpty()) {
-                cache.writeText(names.joinToString("\n"))
-            }
+            downloadPaths(repo)?.takeIf { it.isNotEmpty() }?.let { cache.writeText(it.joinToString("\n")) }
         }
         if (!cache.exists()) return null
-        val names = cache.readLines().filter { it.isNotBlank() }
-        return if (names.isEmpty()) null else CoverIndex(names)
+        val paths = cache.readLines()
+        fun namesIn(folder: String) =
+            paths.filter { it.startsWith("$folder/") && it.endsWith(".png") }
+                .map { it.removePrefix("$folder/").removeSuffix(".png") }
+        return SystemCovers(CoverIndex(namesIn("Named_Boxarts")), CoverIndex(namesIn("Named_Titles")))
     }
 
-    private fun downloadNames(serverSystem: String): List<String>? {
+    /** Every file path in the system's libretro-thumbnails repository on GitHub. */
+    private fun downloadPaths(repo: String): List<String>? {
         return try {
-            val conn = URL("$SERVER/${encode(serverSystem)}/Named_Boxarts/").openConnection() as HttpURLConnection
+            val conn = URL("$GITHUB_API/${encode(repo)}/git/trees/master?recursive=1").openConnection() as HttpURLConnection
             conn.connectTimeout = 15000
-            conn.readTimeout = 30000
-            val html = conn.inputStream.bufferedReader().use { it.readText() }
+            conn.readTimeout = 60000
+            conn.setRequestProperty("Accept", "application/vnd.github+json")
+            conn.setRequestProperty("User-Agent", "AndysEmulator")
+            if (conn.responseCode !in 200..299) {
+                Timber.e("CoverFixer: GitHub answered ${conn.responseCode} for $repo")
+                conn.disconnect()
+                return null
+            }
+            val json = conn.inputStream.bufferedReader().use { it.readText() }
             conn.disconnect()
-            Regex("href=\"([^\"?/]+)\\.png\"").findAll(html)
-                .map { URLDecoder.decode(it.groupValues[1].replace("+", "%2B"), "UTF-8") }
-                .distinct()
-                .toList()
+            val tree = JSONObject(json).getJSONArray("tree")
+            (0 until tree.length()).map { tree.getJSONObject(it).getString("path") }
         } catch (e: Exception) {
-            Timber.e(e, "CoverFixer: couldn't list covers for $serverSystem")
+            Timber.e(e, "CoverFixer: couldn't list covers for $repo")
             null
         }
     }
@@ -136,6 +129,7 @@ class CoverIndex(private val names: List<String>) {
         title: String,
         fileName: String,
     ): String? {
+        if (names.isEmpty()) return null
         val wanted = listOf(title, fileName.substringBeforeLast('.'))
         val regions = regionsOf(title) + regionsOf(fileName)
 

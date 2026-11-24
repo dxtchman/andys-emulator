@@ -210,7 +210,7 @@ private fun HomeScreen(
                             modifier = Modifier.weight(1f),
                         )
                         Text(
-                            "${shownGames.size} games",
+                            if (shownGames.size == 1) "1 game" else "${shownGames.size} games",
                             style = MaterialTheme.typography.labelLarge,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
