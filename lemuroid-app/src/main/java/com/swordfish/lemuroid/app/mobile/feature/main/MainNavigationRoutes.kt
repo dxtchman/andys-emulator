@@ -91,6 +91,12 @@ enum class MainRoute(
         parent = SETTINGS,
         showBottomNavigation = false,
     ),
+    SETTINGS_THEME(
+        route = "settings/theme",
+        titleId = R.string.settings_title_theme,
+        parent = SETTINGS,
+        showBottomNavigation = false,
+    ),
     SETTINGS_SAVE_SYNC(
         route = "settings/savesync",
         titleId = R.string.settings_title_save_sync,

@@ -50,6 +50,7 @@ import com.swordfish.lemuroid.app.mobile.feature.shortcuts.ShortcutsGenerator
 import com.swordfish.lemuroid.app.mobile.feature.systems.MetaSystemsScreen
 import com.swordfish.lemuroid.app.mobile.feature.systems.MetaSystemsViewModel
 import com.swordfish.lemuroid.app.mobile.shared.compose.ui.AppTheme
+import com.swordfish.lemuroid.app.mobile.feature.settings.theme.ThemeSettingsScreen
 import com.swordfish.lemuroid.app.shared.GameInteractor
 import com.swordfish.lemuroid.app.shared.game.BaseGameActivity
 import com.swordfish.lemuroid.app.shared.game.GameLauncher
@@ -295,6 +296,9 @@ class MainActivity : RetrogradeComponentActivity(), BusyActivity {
                                 ),
                             navController = navController,
                         )
+                    }
+                    composable(MainRoute.SETTINGS_THEME) {
+                        ThemeSettingsScreen(modifier = Modifier.padding(padding))
                     }
                     composable(MainRoute.SETTINGS_BIOS) {
                         BiosScreen(

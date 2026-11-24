@@ -47,6 +47,7 @@ fun SettingsScreen(
             .value
 
     LemuroidSettingsPage(modifier = modifier) {
+        AppearanceSettings(navController = navController)
         RomsSettings(
             state = state,
             onChangeFolder = { viewModel.changeLocalStorageFolder() },
@@ -59,6 +60,19 @@ fun SettingsScreen(
             indexingInProgress = indexingInProgress,
             isSaveSyncSupported = state.isSaveSyncSupported,
             navController = navController,
+        )
+    }
+}
+
+@Composable
+private fun AppearanceSettings(navController: NavController) {
+    LemuroidCardSettingsGroup(
+        title = { Text(text = stringResource(id = R.string.settings_category_appearance)) },
+    ) {
+        LemuroidSettingsMenuLink(
+            title = { Text(text = stringResource(id = R.string.settings_title_theme)) },
+            subtitle = { Text(text = stringResource(id = R.string.settings_description_theme)) },
+            onClick = { navController.navigateToRoute(MainRoute.SETTINGS_THEME) },
         )
     }
 }
