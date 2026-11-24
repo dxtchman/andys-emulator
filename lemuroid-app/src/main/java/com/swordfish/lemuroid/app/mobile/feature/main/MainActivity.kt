@@ -50,6 +50,7 @@ import com.swordfish.lemuroid.app.mobile.feature.shortcuts.ShortcutsGenerator
 import com.swordfish.lemuroid.app.mobile.feature.systems.MetaSystemsScreen
 import com.swordfish.lemuroid.app.mobile.feature.systems.MetaSystemsViewModel
 import com.swordfish.lemuroid.app.mobile.shared.compose.ui.AppTheme
+import com.swordfish.lemuroid.app.shared.covers.CoverFixer
 import com.swordfish.lemuroid.app.mobile.feature.settings.theme.ThemeSettingsScreen
 import com.swordfish.lemuroid.app.shared.GameInteractor
 import com.swordfish.lemuroid.app.shared.game.BaseGameActivity
@@ -119,6 +120,10 @@ class MainActivity : RetrogradeComponentActivity(), BusyActivity {
 
         GlobalScope.safeLaunch {
             reviewManager.initialize(applicationContext)
+        }
+
+        GlobalScope.safeLaunch {
+            CoverFixer.run(applicationContext, retrogradeDb)
         }
 
         setContent {

@@ -55,6 +55,9 @@ class HomeViewModel(
         val favoritesGames: List<Game> = emptyList(),
         val recentGames: List<Game> = emptyList(),
         val discoveryGames: List<Game> = emptyList(),
+        val allGames: List<Game> = emptyList(),
+        val recentPlayed: List<Game> = emptyList(),
+        val continueGame: Game? = null,
         val indexInProgress: Boolean = true,
         val showNoNotificationPermissionCard: Boolean = false,
         val showNoMicrophonePermissionCard: Boolean = false,
@@ -103,21 +106,30 @@ class HomeViewModel(
         return permissionResult == PackageManager.PERMISSION_GRANTED
     }
 
+    private data class Library(
+        val discovery: List<Game>,
+        val all: List<Game>,
+        val recentPlayed: List<Game>,
+    )
+
     private fun buildViewState(
         favoritesGames: List<Game>,
         recentGames: List<Game>,
-        discoveryGames: List<Game>,
+        library: Library,
         indexInProgress: Boolean,
         notificationsPermissionEnabled: Boolean,
         showMicrophoneCard: Boolean,
         showDesmumeWarning: Boolean,
     ): UIState {
-        val noGames = recentGames.isEmpty() && favoritesGames.isEmpty() && discoveryGames.isEmpty()
+        val noGames = library.all.isEmpty()
 
         return UIState(
             favoritesGames = favoritesGames,
             recentGames = recentGames,
-            discoveryGames = discoveryGames,
+            discoveryGames = library.discovery,
+            allGames = library.all,
+            recentPlayed = library.recentPlayed,
+            continueGame = library.recentPlayed.firstOrNull(),
             indexInProgress = indexInProgress,
             showNoNotificationPermissionCard = !notificationsPermissionEnabled,
             showNoMicrophonePermissionCard = showMicrophoneCard,
@@ -132,7 +144,7 @@ class HomeViewModel(
                 combine(
                     favoritesGames(retrogradeDb),
                     recentGames(retrogradeDb),
-                    discoveryGames(retrogradeDb),
+                    libraryGames(retrogradeDb),
                     indexingInProgress(appContext),
                     notificationsPermissionEnabledState,
                     microphoneNotification(retrogradeDb),
@@ -149,6 +161,13 @@ class HomeViewModel(
 
     private fun indexingInProgress(appContext: Context) =
         PendingOperationsMonitor(appContext).anyLibraryOperationInProgress()
+
+    private fun libraryGames(retrogradeDb: RetrogradeDatabase): Flow<Library> =
+        combine(
+            discoveryGames(retrogradeDb),
+            retrogradeDb.gameDao().selectAllFlow(),
+            retrogradeDb.gameDao().selectFirstRecents(CAROUSEL_MAX_ITEMS + 1),
+        ) { discovery, all, recents -> Library(discovery, all, recents) }
 
     private fun discoveryGames(retrogradeDb: RetrogradeDatabase) =
         retrogradeDb.gameDao().selectFirstNotPlayed(CAROUSEL_MAX_ITEMS)

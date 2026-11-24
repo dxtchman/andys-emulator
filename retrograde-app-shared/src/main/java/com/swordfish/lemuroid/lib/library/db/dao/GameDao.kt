@@ -30,6 +30,15 @@ import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface GameDao {
+    @Query("SELECT * FROM games ORDER BY COALESCE(customName, title) ASC")
+    suspend fun selectAll(): List<Game>
+
+    @Query("SELECT * FROM games ORDER BY COALESCE(customName, title) ASC")
+    fun selectAllFlow(): Flow<List<Game>>
+
+    @Query("SELECT * FROM games WHERE lastPlayedAt IS NOT NULL ORDER BY lastPlayedAt DESC LIMIT :limit")
+    fun selectFirstRecents(limit: Int): Flow<List<Game>>
+
     @Query("SELECT * FROM games WHERE id = :id")
     suspend fun selectById(id: Int): Game?
 

@@ -15,12 +15,17 @@ import dagger.multibindings.IntoMap
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import timber.log.Timber
+import com.swordfish.lemuroid.app.shared.covers.CoverFixer
+import com.swordfish.lemuroid.lib.library.db.RetrogradeDatabase
 import javax.inject.Inject
 
 class LibraryIndexWork(context: Context, workerParams: WorkerParameters) :
     CoroutineWorker(context, workerParams) {
     @Inject
     lateinit var lemuroidLibrary: LemuroidLibrary
+
+    @Inject
+    lateinit var retrogradeDb: RetrogradeDatabase
 
     override suspend fun doWork(): Result {
         AndroidWorkerInjection.inject(this)
@@ -45,6 +50,8 @@ class LibraryIndexWork(context: Context, workerParams: WorkerParameters) :
         result.exceptionOrNull()?.let {
             Timber.e("Library indexing work terminated with an exception:", it)
         }
+
+        CoverFixer.run(applicationContext, retrogradeDb)
 
         LibraryIndexScheduler.scheduleCoreUpdate(applicationContext)
 
